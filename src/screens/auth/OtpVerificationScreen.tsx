@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { apiClient } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 
 type Props = {
@@ -36,6 +37,7 @@ export default function OtpVerificationScreen({
   navigation,
   route,
 }: Props) {
+  const { completeAuth } = useAuth();
   const { username } = route.params;
 
   const [otp, setOtp] = useState([
@@ -202,29 +204,18 @@ useEffect(() => {
           'userToken',
           token,
         );
+        await AsyncStorage.setItem(
+          'profileCompleted',
+          profileCompleted ? 'true' : 'false'
+        );
 
         if (
           profileCompleted
         ) {
-          navigation.reset({
-            index: 0,
-            routes: [
-              {
-                name:
-                  'Dashboard',
-              },
-            ],
-          });
+          // Switch to MainNavigator (Dashboard is default)
+          completeAuth();
         } else {
-          navigation.reset({
-            index: 0,
-            routes: [
-              {
-                name:
-                  'ProfileSetup',
-              },
-            ],
-          });
+          navigation.replace('ProfileSetup');
         }
       } else {
         Alert.alert(

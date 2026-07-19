@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -80,6 +81,7 @@ export default function ProfileSetupScreen({ navigation }: Props) {
       const response = await apiClient.post('/auth/create-profile', payload);
 
       if (response.data.success) {
+        await AsyncStorage.setItem('profileCompleted', 'true');
         Alert.alert(
           'Success', 
           'Profile created successfully!',

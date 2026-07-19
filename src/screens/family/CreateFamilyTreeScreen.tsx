@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,11 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  RefreshControl,
+  Image,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -25,10 +29,16 @@ import { apiClient } from '../../services/api';
 export type RelationType =
   | 'FATHER'
   | 'MOTHER'
+  | 'BROTHER'
+  | 'SISTER'
   | 'SPOUSE'
-  | 'SIBLING'
-  | 'CHILD'
-  | 'GRANDPARENT'
+  | 'SON'
+  | 'DAUGHTER'
+  | 'GRANDFATHER'
+  | 'GRANDMOTHER'
+  | 'UNCLE'
+  | 'AUNT'
+  | 'COUSIN'
   | 'OTHER';
 
 // Internal, camelCase shape used throughout this screen.
@@ -94,11 +104,17 @@ const RELATIONS: {
 }[] = [
   { key: 'FATHER', label: 'Father', color: '#3B82F6', bg: '#DBEAFE', icon: 'man-outline' },
   { key: 'MOTHER', label: 'Mother', color: '#EC4899', bg: '#FCE7F3', icon: 'woman-outline' },
+  { key: 'BROTHER', label: 'Brother', color: '#10B981', bg: '#D1FAE5', icon: 'man-outline' },
+  { key: 'SISTER', label: 'Sister', color: '#10B981', bg: '#D1FAE5', icon: 'woman-outline' },
   { key: 'SPOUSE', label: 'Spouse', color: '#EF4444', bg: '#FEE2E2', icon: 'heart-outline' },
-  { key: 'SIBLING', label: 'Sibling', color: '#10B981', bg: '#D1FAE5', icon: 'people-outline' },
-  { key: 'CHILD', label: 'Child', color: '#8B5CF6', bg: '#EDE9FE', icon: 'happy-outline' },
-  { key: 'GRANDPARENT', label: 'Grandparent', color: '#F97316', bg: '#FFEDD5', icon: 'walk-outline' },
-  { key: 'OTHER', label: 'Relative', color: '#6B7280', bg: '#F3F4F6', icon: 'person-outline' },
+  { key: 'SON', label: 'Son', color: '#8B5CF6', bg: '#EDE9FE', icon: 'man-outline' },
+  { key: 'DAUGHTER', label: 'Daughter', color: '#8B5CF6', bg: '#EDE9FE', icon: 'woman-outline' },
+  { key: 'GRANDFATHER', label: 'Grandfather', color: '#F97316', bg: '#FFEDD5', icon: 'man-outline' },
+  { key: 'GRANDMOTHER', label: 'Grandmother', color: '#F97316', bg: '#FFEDD5', icon: 'woman-outline' },
+  { key: 'UNCLE', label: 'Uncle', color: '#06B6D4', bg: '#CFFAFE', icon: 'man-outline' },
+  { key: 'AUNT', label: 'Aunt', color: '#06B6D4', bg: '#CFFAFE', icon: 'woman-outline' },
+  { key: 'COUSIN', label: 'Cousin', color: '#F59E0B', bg: '#FEF3C7', icon: 'people-outline' },
+  { key: 'OTHER', label: 'Other', color: '#6B7280', bg: '#F3F4F6', icon: 'person-outline' },
 ];
 
 const GENDERS = ['Male', 'Female', 'Other'];
@@ -119,7 +135,12 @@ function initials(name?: string | null) {
 
 // Display format: 12 May 1998
 function formatDateDisplay(date: Date) {
-  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  if (isNaN(date.getTime())) return 'Invalid Date';
+  try {
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch (e) {
+    return 'Invalid Date';
+  }
 }
 
 // Payload format for the backend: 1998-05-12 (LocalDate-friendly)
@@ -131,8 +152,10 @@ function formatDateForApi(date: Date) {
 }
 
 export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFamilyTreeScreenProps) {
-  const [members, setMembers] = useState<FamilyMemberNode[]>([]);
+  const [familyTree, setFamilyTree] = useState<FamilyMemberNode[]>([]);
   const [loadingTree, setLoadingTree] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [userDetails, setUserDetails] = useState<{fullName?: string; email?: string; mobileNumber?: string} | null>(null);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -142,25 +165,51 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [gender, setGender] = useState<string | null>(null);
   const [parentMemberId, setParentMemberId] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  // Load any existing tree so returning users don't lose progress.
-  useEffect(() => {
-    const loadTree = async () => {
-      try {
-        const res = await apiClient.get('/family/tree');
-        if (res.data?.success && Array.isArray(res.data?.data)) {
-          const raw: FamilyMemberResponseDto[] = res.data.data;
-          setMembers(raw.map(fromApiDto));
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const loadTree = async () => {
+    try {
+      const res = await apiClient.get('/family/tree');
+      if (res.data?.success && res.data?.data) {
+        const data = res.data.data;
+        setUserDetails({
+          fullName: data.fullName,
+          email: data.email,
+          mobileNumber: data.mobileNumber
+        });
+        
+        if (Array.isArray(data.familyMembers)) {
+          const raw: FamilyMemberResponseDto[] = data.familyMembers;
+          setFamilyTree(raw.map(fromApiDto));
+        } else if (Array.isArray(data)) {
+          // Fallback in case the API still returns a direct array
+          const raw: FamilyMemberResponseDto[] = data;
+          setFamilyTree(raw.map(fromApiDto));
         }
-      } catch (error) {
-        // No tree yet, or endpoint not reachable — safe to start from empty state.
-        console.log('No existing family tree found', error);
-      } finally {
-        setLoadingTree(false);
       }
-    };
+    } catch (error) {
+      console.log('No existing family tree found', error);
+    } finally {
+      setLoadingTree(false);
+      setRefreshing(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoadingTree(true);
+      loadTree();
+    }, [])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
     loadTree();
-  }, []);
+  };
 
   const resetForm = () => {
     setName('');
@@ -169,6 +218,37 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
     setShowDatePicker(false);
     setGender(null);
     setParentMemberId(null);
+    setSelectedImage(null);
+  };
+
+  const handlePickImage = async (useCamera: boolean = false) => {
+    const options: ImagePicker.ImagePickerOptions = {
+      mediaTypes: 'images',
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    };
+
+    let result;
+    if (useCamera) {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission Denied', 'Camera access is required to take photos.');
+        return;
+      }
+      result = await ImagePicker.launchCameraAsync(options);
+    } else {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission Denied', 'Gallery access is required to select photos.');
+        return;
+      }
+      result = await ImagePicker.launchImageLibraryAsync(options);
+    }
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setSelectedImage(result.assets[0].uri);
+    }
   };
 
   const handleDateChange = (event: DateTimePickerEvent, selected?: Date) => {
@@ -215,20 +295,47 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
       return;
     }
 
-    const dto: CreateFamilyMemberRequestDto = {
-      member_name: name.trim(),
-      relationship_type: relation,
-      ...(dateOfBirth ? { date_of_birth: formatDateForApi(dateOfBirth) } : {}),
-      ...(gender ? { gender } : {}),
-      parent_member_id: parentMemberId ? Number(parentMemberId) : null,
-    };
-
     setSaving(true);
     try {
-      const res = await apiClient.post('/family/node', dto);
+      let res;
+
+      if (selectedImage) {
+        const formData = new FormData();
+        formData.append('member_name', name.trim());
+        formData.append('relationship_type', relation);
+        if (dateOfBirth) formData.append('date_of_birth', formatDateForApi(dateOfBirth));
+        if (gender) formData.append('gender', gender);
+        if (parentMemberId) formData.append('parent_member_id', parentMemberId);
+        
+        const filename = selectedImage.split('/').pop() || 'profile.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        
+        formData.append('profile_photo', {
+          uri: selectedImage,
+          name: filename,
+          type,
+        } as any);
+
+        res = await apiClient.post('/family/node', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+      } else {
+        const dto: CreateFamilyMemberRequestDto = {
+          member_name: name.trim(),
+          relationship_type: relation,
+          ...(dateOfBirth ? { date_of_birth: formatDateForApi(dateOfBirth) } : {}),
+          ...(gender ? { gender } : {}),
+          parent_member_id: parentMemberId ? Number(parentMemberId) : null,
+        };
+        res = await apiClient.post('/family/node', dto);
+      }
+
       if (res.data?.success && res.data?.data) {
         const newMember = fromApiDto(res.data.data as FamilyMemberResponseDto);
-        setMembers((prev) => [...prev, newMember]);
+        setFamilyTree((prev) => [...prev, newMember]);
         setModalVisible(false);
         resetForm();
       } else {
@@ -242,8 +349,40 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
     }
   };
 
+  const handleDeleteNode = (nodeId: string, memberName: string) => {
+    Alert.alert(
+      'Remove Family Member',
+      `Are you sure you want to remove ${memberName} from your family tree?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeleting(true);
+              const res = await apiClient.delete(`/family/node/${nodeId}`);
+              if (res.data?.success) {
+                setFamilyTree((prev) => prev.filter((m) => m.familyMemberId !== nodeId));
+                setSuccessMessage(res.data.message || 'Family member removed successfully.');
+                setSuccessModalVisible(true);
+              } else {
+                Alert.alert('Error', res.data?.message || 'Could not remove member.');
+              }
+            } catch (error) {
+              console.log('Delete node error', error);
+              Alert.alert('Error', 'Failed to remove family member.');
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleContinue = () => {
-    if (members.length === 0) {
+    if (familyTree.length === 0) {
       Alert.alert(
         'Your tree is empty',
         'Add at least one family member to continue, or skip for now.',
@@ -254,7 +393,7 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
       );
       return;
     }
-    onContinue?.(members);
+    onContinue?.(familyTree);
   };
 
   return (
@@ -278,13 +417,16 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
         style={styles.contentContainer}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED']} />
+        }
       >
         {/* Tree visualization card */}
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardTitle}>Your Tree</Text>
             <Text style={styles.memberCount}>
-              {members.length} {members.length === 1 ? 'member' : 'members'}
+              {familyTree.length} {familyTree.length === 1 ? 'member' : 'members'}
             </Text>
           </View>
 
@@ -293,57 +435,94 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
               <ActivityIndicator color="#8B5CF6" />
             </View>
           ) : (
-            <>
-              {/* Root node - the current user */}
-              <View style={styles.rootRow}>
-                <View style={styles.rootNode}>
-                  <View style={styles.rootAvatar}>
-                    <Ionicons name="person" size={26} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.rootLabel}>You</Text>
-                </View>
-              </View>
+            <View style={styles.treeContainer}>
+              {(() => {
+                const olderGen = familyTree.filter(m => ['GRANDFATHER', 'GRANDMOTHER'].includes(m.relation));
+                const parentsGen = familyTree.filter(m => ['FATHER', 'MOTHER', 'UNCLE', 'AUNT'].includes(m.relation));
+                const sameGen = familyTree.filter(m => ['BROTHER', 'SISTER', 'SPOUSE', 'COUSIN', 'OTHER'].includes(m.relation));
+                const youngerGen = familyTree.filter(m => ['SON', 'DAUGHTER'].includes(m.relation));
 
-              {members.length > 0 && <View style={styles.treeConnectorTrunk} />}
-
-              {members.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Ionicons name="git-network-outline" size={28} color="#C4B5FD" />
-                  <Text style={styles.emptyStateText}>
-                    No family members yet. Start with a parent, sibling or spouse.
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.nodesGrid}>
-                  {members.map((member) => {
-                    const cfg = relationConfig(member.relation);
-                    return (
-                      <View key={member.familyMemberId} style={styles.memberNode}>
-                        <View style={[styles.memberAvatar, { backgroundColor: cfg.bg }]}>
-                          <Text style={[styles.memberInitials, { color: cfg.color }]}>
-                            {initials(member.name)}
-                          </Text>
-                          <View style={[styles.relationBadge, { backgroundColor: cfg.color }]}>
-                            <Ionicons name={cfg.icon} size={10} color="#FFFFFF" />
-                          </View>
-                        </View>
-                        <Text style={styles.memberName} numberOfLines={1}>
-                          {member.name}
-                        </Text>
-                        <Text style={[styles.memberRelation, { color: cfg.color }]}>{cfg.label}</Text>
+                const renderNodes = (nodes: typeof familyTree, title: string) => {
+                  if (nodes.length === 0) return null;
+                  return (
+                    <View style={styles.generationGroup}>
+                      <Text style={styles.generationTitle}>{title}</Text>
+                      <View style={styles.nodesGrid}>
+                        {nodes.map((member) => {
+                          const cfg = relationConfig(member.relation);
+                          return (
+                            <View key={member.familyMemberId} style={styles.memberNode}>
+                              <View style={[styles.memberAvatar, { backgroundColor: cfg.bg }]}>
+                                {member.profilePhotoUrl ? (
+                                  <Image source={{ uri: member.profilePhotoUrl }} style={styles.memberImage} />
+                                ) : (
+                                  <Text style={[styles.memberInitials, { color: cfg.color }]}>
+                                    {initials(member.name)}
+                                  </Text>
+                                )}
+                                <View style={[styles.relationBadge, { backgroundColor: cfg.color }]}>
+                                  <Ionicons name={cfg.icon} size={10} color="#FFFFFF" />
+                                </View>
+                              </View>
+                              <Text style={styles.memberName} numberOfLines={1}>
+                                {member.name}
+                              </Text>
+                              <Text style={[styles.memberRelation, { color: cfg.color }]}>{cfg.label}</Text>
+                              {member.dateOfBirth && (
+                                <Text style={styles.memberDob}>{formatDateDisplay(new Date(member.dateOfBirth))}</Text>
+                              )}
+                              <TouchableOpacity 
+                                style={styles.deleteHint} 
+                                onPress={() => handleDeleteNode(member.familyMemberId, member.name)}
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              >
+                                <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
                       </View>
-                    );
-                  })}
-
-                  <TouchableOpacity style={styles.addNode} onPress={() => openModal()}>
-                    <View style={styles.addNodeCircle}>
-                      <Ionicons name="add" size={22} color="#8B5CF6" />
+                      <View style={styles.treeConnectorTrunk} />
                     </View>
-                    <Text style={styles.addNodeLabel}>Add</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </>
+                  );
+                };
+
+                return (
+                  <>
+                    {renderNodes(olderGen, 'Grandparents')}
+                    {renderNodes(parentsGen, 'Parents & Relatives')}
+
+                    {/* Root node - the current user */}
+                    <View style={styles.generationGroup}>
+                      <Text style={styles.generationTitle}>You</Text>
+                      <View style={styles.rootRow}>
+                        <View style={styles.rootNode}>
+                          <View style={styles.rootAvatar}>
+                            <Text style={[styles.memberInitials, { color: '#FFFFFF' }]}>
+                              {initials(userDetails?.fullName || 'You')}
+                            </Text>
+                          </View>
+                          <Text style={styles.rootLabel}>{userDetails?.fullName || 'You'}</Text>
+                        </View>
+                      </View>
+                      {(sameGen.length > 0 || youngerGen.length > 0) && <View style={styles.treeConnectorTrunk} />}
+                    </View>
+
+                    {renderNodes(sameGen, 'Siblings & Spouse')}
+                    {renderNodes(youngerGen, 'Children')}
+
+                    {familyTree.length === 0 && (
+                      <View style={styles.emptyState}>
+                        <Ionicons name="git-network-outline" size={48} color="#E5E7EB" />
+                        <Text style={styles.emptyStateText}>
+                          Your family tree is empty.{'\n'}Tap the + button to add members.
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                );
+              })()}
+            </View>
           )}
         </View>
 
@@ -367,13 +546,10 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
 
       {/* Bottom actions */}
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.bottomWrapper}>
-        <TouchableOpacity style={styles.addMemberButton} onPress={() => openModal()}>
-          <Ionicons name="person-add-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-          <Text style={styles.addMemberButtonText}>Add Family Member</Text>
-        </TouchableOpacity>
-
         <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-          <Text style={styles.continueButtonText}>Continue</Text>
+          <LinearGradient colors={['#7C3AED', '#EC4899']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.continueGradient}>
+            <Text style={styles.continueButtonText}>Continue</Text>
+          </LinearGradient>
         </TouchableOpacity>
 
         {onSkip && (
@@ -383,7 +559,14 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
         )}
       </SafeAreaView>
 
-      {/* Add Family Member modal */}
+      {/* FAB */}
+      <TouchableOpacity style={styles.fab} onPress={() => openModal()}>
+        <LinearGradient colors={['#EC4899', '#7C3AED']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabGradient}>
+          <Ionicons name="add" size={32} color="#FFFFFF" />
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* Add Family Member Bottom Sheet */}
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={closeModal}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -400,6 +583,28 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <View style={styles.photoUploadContainer}>
+                <View style={styles.photoPreviewWrapper}>
+                  {selectedImage ? (
+                    <Image source={{ uri: selectedImage }} style={styles.photoPreview} />
+                  ) : (
+                    <View style={styles.photoPlaceholder}>
+                      <Ionicons name="camera-outline" size={32} color="#9CA3AF" />
+                    </View>
+                  )}
+                </View>
+                <View style={styles.photoButtonsRow}>
+                  <TouchableOpacity style={styles.photoButton} onPress={() => handlePickImage(false)}>
+                    <Ionicons name="images-outline" size={16} color="#7C3AED" />
+                    <Text style={styles.photoButtonText}>Gallery</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.photoButton} onPress={() => handlePickImage(true)}>
+                    <Ionicons name="camera-outline" size={16} color="#7C3AED" />
+                    <Text style={styles.photoButtonText}>Camera</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               <Text style={styles.fieldLabel}>Relation</Text>
               <View style={styles.chipRow}>
                 {RELATIONS.map((r) => {
@@ -488,7 +693,7 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
                 })}
               </View>
 
-              {members.length > 0 && (
+              {familyTree.length > 0 && (
                 <>
                   <Text style={styles.fieldLabel}>Connects to (optional)</Text>
                   <View style={styles.chipRow}>
@@ -508,7 +713,7 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
                         You
                       </Text>
                     </TouchableOpacity>
-                    {members.map((m) => (
+                    {familyTree.map((m) => (
                       <TouchableOpacity
                         key={m.familyMemberId}
                         style={[
@@ -546,6 +751,22 @@ export default function CreateFamilyTreeScreen({ onContinue, onSkip }: CreateFam
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Success Modal */}
+      <Modal visible={successModalVisible} animationType="fade" transparent onRequestClose={() => setSuccessModalVisible(false)}>
+        <View style={styles.successModalBackdrop}>
+          <View style={styles.successModalCard}>
+            <View style={styles.successIconCircle}>
+              <Ionicons name="checkmark" size={32} color="#10B981" />
+            </View>
+            <Text style={styles.successModalTitle}>Success</Text>
+            <Text style={styles.successModalMessage}>{successMessage}</Text>
+            <TouchableOpacity style={styles.successModalButton} onPress={() => setSuccessModalVisible(false)}>
+              <Text style={styles.successModalButtonText}>Okay</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -635,19 +856,57 @@ const styles = StyleSheet.create({
   treeConnectorTrunk: {
     alignSelf: 'center',
     width: 2,
-    height: 20,
+    height: 24,
     backgroundColor: '#E5E7EB',
     marginVertical: 4,
+  },
+  treeContainer: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    width: '100%',
+  },
+  generationGroup: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  generationTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 12,
   },
   nodesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     gap: 16,
+    paddingHorizontal: 8,
   },
   memberNode: {
-    width: 76,
+    width: 110,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16,
+    padding: 12,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    position: 'relative',
+  },
+  deleteHint: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 12,
+    padding: 6,
+    zIndex: 10,
   },
   memberAvatar: {
     width: 56,
@@ -745,26 +1004,38 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 8,
   },
-  addMemberButton: {
-    flexDirection: 'row',
-    backgroundColor: '#1F2937',
+  continueButton: {
+    marginBottom: 8,
+    width: '100%',
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  continueGradient: {
+    width: '100%',
     borderRadius: 16,
     paddingVertical: 14,
+    alignItems: 'center',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 110,
+    right: 20,
+    shadowColor: '#EC4899',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    borderRadius: 28,
+  },
+  fabGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
-  },
-  addMemberButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  continueButton: {
-    backgroundColor: '#7C3AED',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: 8,
   },
   continueButtonText: {
     color: '#FFFFFF',
@@ -894,5 +1165,109 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  photoUploadContainer: {
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  photoPreviewWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    marginBottom: 12,
+  },
+  photoPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  photoButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  photoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 6,
+  },
+  photoButtonText: {
+    color: '#7C3AED',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  memberImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 28,
+  },
+  memberDob: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  successModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17, 24, 39, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successModalCard: {
+    backgroundColor: '#FFFFFF',
+    width: '80%',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  successIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#D1FAE5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  successModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  successModalMessage: {
+    fontSize: 15,
+    color: '#4B5563',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  successModalButton: {
+    backgroundColor: '#7C3AED',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 16,
+    width: '100%',
+    alignItems: 'center',
+  },
+  successModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

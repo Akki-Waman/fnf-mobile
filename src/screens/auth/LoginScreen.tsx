@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import * as Google from 'expo-auth-session/providers/google';
+// import * as Google from 'expo-auth-session/providers/google';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,20 +18,26 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { apiClient } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 // Required so the OAuth browser popup can properly close/return control to the app
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen({ navigation }: any) {
+  const { completeAuth } = useAuth();
   const [username, setUsername] = useState('');
   const [oauthLoading, setOauthLoading] = useState(false);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: 'YOUR_EXPO_CLIENT_ID',
-    androidClientId: 'YOUR_ANDROID_CLIENT_ID',
-    iosClientId: 'YOUR_IOS_CLIENT_ID',
-    webClientId: 'YOUR_WEB_CLIENT_ID',
-  });
+  // Temporarily commented out to fix crash on startup in Expo Go
+  // const [request, response, promptAsync] = Google.useAuthRequest({
+  //   expoClientId: 'YOUR_EXPO_CLIENT_ID',
+  //   androidClientId: 'YOUR_ANDROID_CLIENT_ID',
+  //   iosClientId: 'YOUR_IOS_CLIENT_ID',
+  //   webClientId: 'YOUR_WEB_CLIENT_ID',
+  // });
+  const request = null;
+  const response: any = null;
+  const promptAsync = () => {};
 
   useEffect(() => {
     if (response?.type === 'success') {
@@ -62,11 +68,14 @@ export default function LoginScreen({ navigation }: any) {
         const profileCompleted = data.profile_completed ?? data.profileCompleted;
 
         await AsyncStorage.setItem('userToken', token);
+        await AsyncStorage.setItem('profileCompleted', profileCompleted ? 'true' : 'false');
 
-        navigation.reset({
-          index: 0,
-          routes: [{ name: profileCompleted ? 'Dashboard' : 'ProfileSetup' }],
-        });
+        if (profileCompleted) {
+          // Switch to MainNavigator (Dashboard is default)
+          completeAuth();
+        } else {
+          navigation.replace('ProfileSetup');
+        }
       } else {
         Alert.alert('Error', res.data.message || `${payload.provider} Login Failed`);
       }
@@ -210,7 +219,7 @@ export default function LoginScreen({ navigation }: any) {
               <TouchableOpacity
                 style={styles.socialBtn}
                 onPress={handleGooglePress}
-                disabled={!request || oauthLoading}
+                disabled={oauthLoading} // Disabled request check temporarily
               >
                 <Image
                   source={require('../../../assets/google.png')}
