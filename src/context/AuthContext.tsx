@@ -17,18 +17,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const bootstrap = async () => {
-      try {
-        const token = await AsyncStorage.getItem('userToken');
-        setIsAuthenticated(!!token);
-      } finally {
-        setIsLoading(false);
-      }
+      // Allow SplashScreen to render and handle the delay/navigation
+      setIsLoading(false);
     };
     bootstrap();
   }, []);
 
   const signIn = async (token: string) => {
     await AsyncStorage.setItem('userToken', token);
+    await AsyncStorage.setItem('profileCompleted', 'true');
     setIsAuthenticated(true);
   };
 

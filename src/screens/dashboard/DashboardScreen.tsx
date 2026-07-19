@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 // ---- Types ----
 export type Celebration = {
@@ -57,6 +58,7 @@ export default function DashboardScreen({
   onFamilyTree,
 }: DashboardScreenProps) {
   const greeting = getGreeting();
+  const { signOut } = useAuth();
   const [fetchedName, setFetchedName] = useState<string | null>(null);
 
   const [fetchedCelebrations, setFetchedCelebrations] = useState<Celebration[]>([]);
@@ -142,9 +144,14 @@ export default function DashboardScreen({
       >
         <SafeAreaView edges={['top', 'left', 'right']}>
           <View style={styles.headerContent}>
-            <Text style={styles.greetingText}>
-              {displayName ? `${greeting}, ${displayName}! 👋` : `${greeting}! 👋`}
-            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Text style={styles.greetingText}>
+                {displayName ? `${greeting}, ${displayName}! 👋` : `${greeting}! 👋`}
+              </Text>
+              <TouchableOpacity onPress={signOut} style={{ padding: 4 }}>
+                <Ionicons name="log-out-outline" size={26} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.subtitleText}>
               Here's what's happening today in your family.
             </Text>
