@@ -8,8 +8,15 @@ import ProfileSetupScreen from '../screens/auth/ProfileSetupScreen';
 export type AuthStackParamList = {
   Splash: undefined;
   Login: undefined;
-  OTP: { phoneNumber: string };
-  ProfileSetup: undefined;
+  OTP: { username?: string; phoneNumber?: string };
+  ProfileSetup:
+    | {
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        profilePhotoUrl?: string | null;
+      }
+    | undefined;
 };
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();

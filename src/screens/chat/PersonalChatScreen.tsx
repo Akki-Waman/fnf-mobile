@@ -4,32 +4,47 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const MOCK_MESSAGES = [
-  { id: '1', text: 'Hi Pooja, how are you?', sender: 'me', time: '10:00 AM' },
-  { id: '2', text: 'I am good, thanks! How about you?', sender: 'them', time: '10:05 AM' },
-  { id: '3', text: 'Happy Birthday Dad! 🎉\nWishing you good health and happiness always.', sender: 'me', time: '10:15 AM', isSpecial: true },
-  { id: '4', text: 'Thank you beta! ❤️', sender: 'them', time: '10:20 AM' },
+const INITIAL_MESSAGES = [
+  { id: '1', text: 'Happy Birthday Dad! 🎂\nWishing you good health and happiness always.', sender: 'me', time: '10:15 AM', isSpecial: true },
+  { id: '2', text: 'Thank you beta! ❤️', sender: 'them', time: '10:20 AM' },
 ];
 
 export default function PersonalChatScreen() {
   const navigation = useNavigation();
+  const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
 
-  const renderMessage = ({ item }: { item: typeof MOCK_MESSAGES[0] }) => {
+  const handleSend = () => {
+    if (!inputText.trim()) return;
+    const newMsg = {
+      id: String(Date.now()),
+      text: inputText.trim(),
+      sender: 'me',
+      time: 'Just now',
+    };
+    setMessages((prev) => [...prev, newMsg]);
+    setInputText('');
+  };
+
+  const renderMessage = ({ item }: { item: typeof INITIAL_MESSAGES[0] }) => {
     const isMe = item.sender === 'me';
-    
+
     return (
       <View style={[styles.messageRow, isMe ? styles.messageRowMe : styles.messageRowThem]}>
-        {!isMe && <Image source={{ uri: 'https://i.pravatar.cc/150?img=5' }} style={styles.messageAvatar} />}
-        
-        <View style={isMe ? styles.messageBubbleContainerMe : styles.messageBubbleContainerThem}>
+        {!isMe && (
+          <View style={styles.messageAvatar}>
+            <Ionicons name="person" size={18} color="#FF6B8A" />
+          </View>
+        )}
+
+        <View style={isMe ? styles.bubbleContainerMe : styles.bubbleContainerThem}>
           {item.isSpecial ? (
-            <LinearGradient colors={['#FF8A65', '#FF7043']} style={[styles.messageBubble, styles.specialBubble]}>
-              <Text style={styles.specialMessageText}>{item.text}</Text>
+            <LinearGradient colors={['#FF6B8A', '#FF9A62']} style={[styles.messageBubble, styles.specialBubble]}>
+              <Text style={styles.specialText}>{item.text}</Text>
             </LinearGradient>
           ) : (
             <View style={[styles.messageBubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
-              <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
+              <Text style={[styles.messageText, isMe ? styles.textMe : styles.textThem]}>
                 {item.text}
               </Text>
             </View>
@@ -41,85 +56,79 @@ export default function PersonalChatScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
-        style={styles.container} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <LinearGradient colors={['#AB47BC', '#7E57C2']} style={styles.headerGradient}>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Ionicons name="chevron-back" size={28} color="white" />
-            </TouchableOpacity>
-            
-            <Image source={{ uri: 'https://i.pravatar.cc/150?img=5' }} style={styles.headerAvatar} />
-            
-            <View style={styles.headerInfo}>
-              <Text style={styles.headerName}>Pooja Mehra</Text>
-              <Text style={styles.headerStatus}>Online</Text>
-            </View>
-            
-            <View style={styles.headerActions}>
-              <TouchableOpacity style={styles.headerIcon}>
-                <Ionicons name="videocam" size={24} color="white" />
+    <LinearGradient colors={['#FFF5F5', '#F5F3FF']} style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <LinearGradient colors={['#FF6B8A', '#A53FE7']} style={styles.headerGradient}>
+            <View style={styles.header}>
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={24} color="white" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerIcon}>
-                <Ionicons name="call" size={22} color="white" />
-              </TouchableOpacity>
+
+              <View style={styles.headerAvatar}>
+                <Ionicons name="person" size={20} color="#FF6B8A" />
+              </View>
+
+              <View style={styles.headerInfo}>
+                <Text style={styles.headerName}>Pooja Mehra</Text>
+                <Text style={styles.headerStatus}>Online</Text>
+              </View>
+
+              <View style={styles.headerActions}>
+                <TouchableOpacity style={styles.iconBtn}>
+                  <Ionicons name="videocam-outline" size={22} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconBtn}>
+                  <Ionicons name="call-outline" size={20} color="white" />
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </LinearGradient>
+          </LinearGradient>
 
-        <FlatList
-          data={MOCK_MESSAGES}
-          keyExtractor={item => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={styles.chatList}
-          showsVerticalScrollIndicator={false}
-        />
-
-        <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.attachButton}>
-            <Ionicons name="add" size={24} color="#7E57C2" />
-          </TouchableOpacity>
-          
-          <TextInput
-            style={styles.textInput}
-            placeholder="Type a message..."
-            placeholderTextColor="#999"
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
+          <FlatList
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            contentContainerStyle={styles.chatList}
+            showsVerticalScrollIndicator={false}
           />
-          
-          {inputText.length > 0 ? (
-            <TouchableOpacity style={styles.sendButton}>
-              <Ionicons name="send" size={20} color="white" style={{ marginLeft: 2 }} />
+
+          <View style={styles.inputBar}>
+            <TouchableOpacity style={styles.clipBtn}>
+              <Ionicons name="attach" size={22} color="#6B7280" />
             </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.micButton}>
-              <Ionicons name="mic" size={24} color="#999" />
+
+            <TextInput
+              style={styles.textInput}
+              placeholder="Type a message..."
+              placeholderTextColor="#9CA3AF"
+              value={inputText}
+              onChangeText={setInputText}
+            />
+
+            <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
+              <LinearGradient colors={['#FF6B8A', '#A53FE7']} style={styles.sendGradient}>
+                <Ionicons name="send" size={18} color="white" style={{ marginLeft: 2 }} />
+              </LinearGradient>
             </TouchableOpacity>
-          )}
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
   container: {
     flex: 1,
   },
+  safeArea: {
+    flex: 1,
+  },
   headerGradient: {
-    paddingTop: 10,
-    paddingBottom: 15,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingVertical: 12,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   header: {
     flexDirection: 'row',
@@ -127,13 +136,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   backButton: {
-    padding: 4,
-    marginRight: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
   },
   headerAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   headerInfo: {
@@ -142,28 +158,32 @@ const styles = StyleSheet.create({
   headerName: {
     fontSize: 18,
     fontWeight: '700',
-    color: 'white',
+    color: '#FFFFFF',
   },
   headerStatus: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 1,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  headerIcon: {
-    marginLeft: 16,
-    padding: 4,
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   chatList: {
     padding: 16,
-    paddingBottom: 30,
+    paddingBottom: 20,
   },
   messageRow: {
     flexDirection: 'row',
-    marginBottom: 20,
+    marginBottom: 16,
     alignItems: 'flex-end',
   },
   messageRowMe: {
@@ -173,16 +193,19 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   messageAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFF0F2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
-  messageBubbleContainerMe: {
+  bubbleContainerMe: {
     alignItems: 'flex-end',
     maxWidth: '80%',
   },
-  messageBubbleContainerThem: {
+  bubbleContainerThem: {
     alignItems: 'flex-start',
     maxWidth: '80%',
   },
@@ -192,82 +215,85 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   bubbleMe: {
-    backgroundColor: '#7E57C2',
+    backgroundColor: '#A53FE7',
     borderBottomRightRadius: 4,
   },
   bubbleThem: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   specialBubble: {
     borderBottomRightRadius: 4,
+    elevation: 4,
   },
   messageText: {
     fontSize: 15,
     lineHeight: 22,
   },
-  messageTextMe: {
-    color: 'white',
+  textMe: {
+    color: '#FFFFFF',
+    fontWeight: '500',
   },
-  messageTextThem: {
-    color: '#333',
+  textThem: {
+    color: '#111827',
+    fontWeight: '500',
   },
-  specialMessageText: {
-    color: 'white',
+  specialText: {
+    color: '#FFFFFF',
     fontSize: 16,
     lineHeight: 24,
-    fontWeight: '500',
+    fontWeight: '700',
   },
   messageTime: {
     fontSize: 11,
-    color: '#aaa',
-    marginTop: 6,
+    color: '#9CA3AF',
+    marginTop: 4,
     marginHorizontal: 4,
   },
-  inputContainer: {
+  inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: '#F3F4F6',
   },
-  attachButton: {
+  clipBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#f5f5f5',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    fontSize: 15,
-    maxHeight: 100,
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
+    backgroundColor: '#FAFAFA',
     borderRadius: 20,
-    backgroundColor: '#7E57C2',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 12,
+    paddingHorizontal: 16,
+    height: 44,
+    fontSize: 15,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  micButton: {
-    width: 40,
-    height: 40,
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    marginLeft: 10,
+    elevation: 3,
+  },
+  sendGradient: {
+    width: '100%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 12,
   },
 });

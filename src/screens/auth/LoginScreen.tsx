@@ -13,12 +13,25 @@ import {
   Platform,
   KeyboardAvoidingView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { apiClient } from '../../services/api';
+import { authApi } from '../../services/authApi';
 import { useAuth } from '../../context/AuthContext';
+
+let GoogleSignin: any = null;
+let statusCodes: any = {};
+
+try {
+  const GoogleModule = require('@react-native-google-signin/google-signin');
+  GoogleSignin = GoogleModule.GoogleSignin;
+  statusCodes = GoogleModule.statusCodes || {};
+} catch (e) {
+  console.log('Native GoogleSignin module is not available in the current runtime (e.g. Expo Go)');
+}
 
 // Required so the OAuth browser popup can properly close/return control to the app
 WebBrowser.maybeCompleteAuthSession();
@@ -28,27 +41,18 @@ export default function LoginScreen({ navigation }: any) {
   const [username, setUsername] = useState('');
   const [oauthLoading, setOauthLoading] = useState(false);
 
-  // Temporarily commented out to fix crash on startup in Expo Go
-  // const [request, response, promptAsync] = Google.useAuthRequest({
-  //   expoClientId: 'YOUR_EXPO_CLIENT_ID',
-  //   androidClientId: 'YOUR_ANDROID_CLIENT_ID',
-  //   iosClientId: 'YOUR_IOS_CLIENT_ID',
-  //   webClientId: 'YOUR_WEB_CLIENT_ID',
-  // });
-  const request = null;
-  const response: any = null;
-  const promptAsync = () => {};
-
   useEffect(() => {
-    if (response?.type === 'success') {
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        loginWithGoogle(authentication.accessToken);
+    if (GoogleSignin) {
+      try {
+        GoogleSignin.configure({
+          webClientId: 'YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com', // Configure your Google Web Client ID from Google Cloud Console
+          offlineAccess: true,
+        });
+      } catch (e) {
+        console.log('GoogleSignin configuration note:', e);
       }
-    } else if (response?.type === 'error') {
-      Alert.alert('Error', 'Google Login was cancelled or failed.');
     }
-  }, [response]);
+  }, []);
 
   // ---- Shared handler: sends provider payload to backend /auth/oauth ----
   const completeOAuthLogin = async (payload: {
@@ -56,30 +60,51 @@ export default function LoginScreen({ navigation }: any) {
     providerToken: string;
     email?: string | null;
     fullName?: string | null;
+    givenName?: string | null;
+    familyName?: string | null;
+    photo?: string | null;
   }) => {
     try {
       setOauthLoading(true);
 
-      const res = await apiClient.post('/auth/oauth', payload);
+      const res = await authApi.oauthLogin({
+        provider: payload.provider,
+        providerToken: payload.providerToken,
+        email: payload.email || undefined,
+        fullName: payload.fullName || undefined,
+      });
 
-      if (res.data.success) {
-        const data = res.data.data;
-        const token = data.jwt_token ?? data.jwtToken;
-        const profileCompleted = data.profile_completed ?? data.profileCompleted;
+      if (res.success) {
+        const data = res.data;
+        const token = data.jwt_token;
+        const profileCompleted = data.profile_completed;
 
         await AsyncStorage.setItem('userToken', token);
         await AsyncStorage.setItem('profileCompleted', profileCompleted ? 'true' : 'false');
 
         if (profileCompleted) {
-          // Switch to MainNavigator (Dashboard is default)
+          const savedRedirect = await AsyncStorage.getItem('redirectAfterLogin');
+          if (savedRedirect) {
+            await AsyncStorage.removeItem('redirectAfterLogin');
+            console.log('Restoring post-login route:', savedRedirect);
+          }
           completeAuth();
         } else {
-          navigation.replace('ProfileSetup');
+          navigation.replace('ProfileSetup', {
+            email: payload.email || undefined,
+            firstName:
+              payload.givenName ||
+              (payload.fullName ? payload.fullName.split(' ')[0] : undefined),
+            lastName:
+              payload.familyName ||
+              (payload.fullName ? payload.fullName.split(' ').slice(1).join(' ') : undefined),
+            profilePhotoUrl: payload.photo || undefined,
+          });
         }
       } else {
-        Alert.alert('Error', res.data.message || `${payload.provider} Login Failed`);
+        Alert.alert('Error', res.message || `${payload.provider} Login Failed`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.log(`${payload.provider} Login Error`, error);
       Alert.alert('Error', `${payload.provider === 'GOOGLE' ? 'Google' : 'Apple'} Login Failed`);
     } finally {
@@ -87,33 +112,100 @@ export default function LoginScreen({ navigation }: any) {
     }
   };
 
-  // ---- Google ----
-  const loginWithGoogle = async (accessToken: string) => {
+  // ---- Native Google Sign-In Handler ----
+  const handleGooglePress = async () => {
+    if (!GoogleSignin) {
+      handleGoogleOtpFallback();
+      return;
+    }
     try {
       setOauthLoading(true);
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const response = await GoogleSignin.signIn();
 
-      const googleUserRes = await fetch(
-        'https://www.googleapis.com/oauth2/v2/userinfo',
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      );
-      const profile = await googleUserRes.json();
+      const data = (response as any)?.data || response;
+      const idToken = data?.idToken;
+      const user = data?.user;
+
+      if (!idToken) {
+        Alert.alert('Google Sign-In Error', 'Unable to obtain Google ID token.');
+        return;
+      }
+
+      const fullName =
+        user?.name || [user?.givenName, user?.familyName].filter(Boolean).join(' ');
 
       await completeOAuthLogin({
         provider: 'GOOGLE',
-        providerToken: accessToken,
-        email: profile.email,
-        fullName: profile.name,
+        providerToken: idToken,
+        email: user?.email,
+        fullName: fullName,
+        givenName: user?.givenName,
+        familyName: user?.familyName,
+        photo: user?.photo,
       });
-    } catch (error) {
-      console.log('Google Login Error', error);
-      Alert.alert('Error', 'Google Login Failed');
+    } catch (error: any) {
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        return;
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        return;
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert(
+          'Google Play Services',
+          'Google Play Services is not available or outdated on this device.',
+        );
+      } else {
+        console.log('Google Sign-In Error:', error);
+        if (
+          error?.message?.includes('DEVELOPMENT_BUILD') ||
+          error?.message?.includes('null') ||
+          error?.code === '12500'
+        ) {
+          handleGoogleOtpFallback();
+        } else {
+          Alert.alert('Google Sign-In Error', error?.message || 'Google authentication failed.');
+        }
+      }
+    } finally {
       setOauthLoading(false);
     }
   };
 
-  const handleGooglePress = () => {
-    if (!request) return; // request not ready yet
-    promptAsync();
+  const handleGoogleOtpFallback = async () => {
+    const emailInput = username.trim();
+    if (!emailInput) {
+      Alert.alert(
+        'Google Sign-In',
+        'Please enter your Gmail address in the field above to receive a verification OTP.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              if (!username) {
+                setUsername('@gmail.com');
+              }
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    try {
+      setOauthLoading(true);
+      const res = await authApi.sendOtp({ username: emailInput });
+
+      if (res.success) {
+        navigation.navigate('OTP', { username: emailInput });
+      } else {
+        Alert.alert('Error', res.message || 'Failed to send OTP to Gmail');
+      }
+    } catch (error) {
+      console.log('Google OTP Fallback Error:', error);
+      Alert.alert('Network Error', 'Could not connect to the server.');
+    } finally {
+      setOauthLoading(false);
+    }
   };
 
   // ---- Apple ----
@@ -155,18 +247,18 @@ export default function LoginScreen({ navigation }: any) {
 
   // ---- OTP (mobile/email) ----
   const handleSendOtp = async () => {
-    if (username.length < 10) {
+    if (username.length < 5) {
       Alert.alert('Invalid Input', 'Please enter a valid mobile number or email.');
       return;
     }
 
     try {
-      const res = await apiClient.post('/auth/send-otp', { username });
+      const res = await authApi.sendOtp({ username: username.trim() });
 
-      if (res.data.success) {
+      if (res.success) {
         navigation.navigate('OTP', { username: username.trim() });
       } else {
-        Alert.alert('Error', res.data.message || 'Failed to send OTP');
+        Alert.alert('Error', res.message || 'Failed to send OTP');
       }
     } catch (error) {
       console.error(error);
@@ -217,15 +309,21 @@ export default function LoginScreen({ navigation }: any) {
 
             <View style={styles.socialRow}>
               <TouchableOpacity
-                style={styles.socialBtn}
+                style={[styles.socialBtn, Platform.OS !== 'ios' && styles.socialBtnFull]}
                 onPress={handleGooglePress}
-                disabled={oauthLoading} // Disabled request check temporarily
+                disabled={oauthLoading}
               >
-                <Image
-                  source={require('../../../assets/google.png')}
-                  style={styles.socialIcon}
-                />
-                <Text style={styles.socialText}>Google</Text>
+                {oauthLoading ? (
+                  <ActivityIndicator size="small" color="#7C3AED" />
+                ) : (
+                  <>
+                    <Image
+                      source={require('../../../assets/google.png')}
+                      style={styles.socialIcon}
+                    />
+                    <Text style={styles.socialText}>Google</Text>
+                  </>
+                )}
               </TouchableOpacity>
 
               {Platform.OS === 'ios' && (
@@ -241,13 +339,6 @@ export default function LoginScreen({ navigation }: any) {
                   <Text style={styles.socialText}>Apple</Text>
                 </TouchableOpacity>
               )}
-            </View>
-
-            <View style={styles.signupRow}>
-              <Text style={styles.signupText}>Don't have an account?</Text>
-              <TouchableOpacity>
-                <Text style={styles.signupLink}>Sign Up</Text>
-              </TouchableOpacity>
             </View>
           </LinearGradient>
         </KeyboardAvoidingView>
@@ -336,9 +427,10 @@ const styles = StyleSheet.create({
   socialRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
   socialBtn: {
-    width: '47%',
+    width: Platform.OS === 'ios' ? '48%' : '100%',
     height: 58,
     borderRadius: 18,
     borderWidth: 1,
@@ -347,6 +439,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  socialBtnFull: {
+    width: '100%',
   },
   socialIcon: {
     width: 24,
@@ -357,20 +452,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#18181B',
-  },
-  signupRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 35,
-  },
-  signupText: {
-    fontSize: 15,
-    color: '#71717A',
-  },
-  signupLink: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#8B5CF6',
-    marginLeft: 5,
   },
 });

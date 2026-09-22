@@ -1,31 +1,30 @@
 import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export default function EventDetailsScreen() {
   const navigation = useNavigation();
+  const route = useRoute<any>();
+
+  const eventName = route.params?.title || "Dad's Birthday";
+  const eventDate = route.params?.subtitle || 'May 28, 2024';
 
   return (
-    <LinearGradient colors={['#FF7043', '#AB47BC']} style={styles.container}>
+    <LinearGradient colors={['#A53FE7', '#EC4899']} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={28} color="white" />
+            <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
         </View>
 
         <View style={styles.content}>
-          <Text style={styles.eventName}>Dad's Birthday</Text>
-          <Text style={styles.eventDate}>28 May 2024</Text>
+          <Text style={styles.eventName}>{eventName}</Text>
+          <Text style={styles.eventDate}>{eventDate}</Text>
 
-          <View style={styles.illustrationContainer}>
-            {/* Placeholder for illustration */}
-            <Ionicons name="gift" size={120} color="rgba(255,255,255,0.8)" />
-          </View>
-
-          <View style={styles.countdownContainer}>
+          <View style={styles.countdownRing}>
             <View style={styles.timeBlock}>
               <Text style={styles.timeValue}>05</Text>
               <Text style={styles.timeLabel}>Days</Text>
@@ -43,20 +42,24 @@ export default function EventDetailsScreen() {
           </View>
 
           <View style={styles.actionsContainer}>
-            <TouchableOpacity style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>Send Wish</Text>
+            <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('PersonalChat' as never)}>
+              <LinearGradient colors={['#FF6B8A', '#FF9A62']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gradientBtn}>
+                <Text style={styles.actionBtnText}>Send Wish</Text>
+              </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate('MessageScheduler' as never)}>
-              <Text style={styles.secondaryButtonText}>Schedule Wish</Text>
+            <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('MessageScheduler' as never)}>
+              <LinearGradient colors={['#9333EA', '#6366F1']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gradientBtn}>
+                <Text style={styles.actionBtnText}>Schedule Wish</Text>
+              </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate('PersonalChat' as never)}>
-              <Text style={styles.secondaryButtonText}>Open Chat</Text>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.navigate('PersonalChat' as never)}>
+              <Text style={styles.secondaryBtnText}>Open Chat</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.textButton} onPress={() => navigation.navigate('Memories' as never)}>
-              <Text style={styles.textButtonText}>View Memories</Text>
+
+            <TouchableOpacity style={styles.outlineBtn} onPress={() => navigation.navigate('Memories' as never)}>
+              <Text style={styles.outlineBtnText}>View Memories</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -73,111 +76,121 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
   backButton: {
     width: 40,
     height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   content: {
     flex: 1,
     alignItems: 'center',
     paddingHorizontal: 24,
+    justifyContent: 'space-around',
+    paddingBottom: 20,
   },
   eventName: {
     fontSize: 32,
-    fontWeight: '800',
-    color: 'white',
-    marginTop: 10,
+    fontWeight: '900',
+    color: '#FFFFFF',
     textAlign: 'center',
   },
   eventDate: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 8,
-    marginBottom: 30,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '600',
+    marginTop: -10,
   },
-  illustrationContainer: {
-    height: 180,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  countdownContainer: {
+  countdownRing: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    borderWidth: 10,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20,
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    marginBottom: 40,
+    marginVertical: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
   },
   timeBlock: {
     alignItems: 'center',
-    width: 60,
   },
   timeValue: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: 'white',
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
   timeLabel: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '600',
+    marginTop: 2,
   },
   timeSeparator: {
     fontSize: 28,
-    fontWeight: '700',
-    color: 'white',
-    marginHorizontal: 10,
-    paddingBottom: 20, // Adjust alignment with numbers
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginHorizontal: 8,
+    marginBottom: 16,
   },
   actionsContainer: {
     width: '100%',
   },
-  primaryButton: {
-    backgroundColor: 'white',
-    borderRadius: 25,
-    paddingVertical: 16,
-    alignItems: 'center',
+  actionBtn: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
     elevation: 4,
   },
-  primaryButtonText: {
-    color: '#FF7043',
+  gradientBtn: {
+    height: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionBtnText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },
-  secondaryButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 25,
-    paddingVertical: 16,
+  secondaryBtn: {
+    width: '100%',
+    height: 54,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
-  secondaryButtonText: {
-    color: 'white',
+  secondaryBtnText: {
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  textButton: {
-    paddingVertical: 12,
+  outlineBtn: {
+    width: '100%',
+    height: 54,
+    borderRadius: 16,
+    justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
-  textButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-    textDecorationLine: 'underline',
+  outlineBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

@@ -4,6 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { useAuth } from '../../context/AuthContext';
+import { isTokenExpired } from '../../util/authUtils';
+import { clearAuthSession } from '../../services/api';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Splash'>;
@@ -18,18 +20,27 @@ export default function SplashScreen({ navigation }: Props) {
         const token = await AsyncStorage.getItem('userToken');
         const profileCompleted = await AsyncStorage.getItem('profileCompleted');
 
+        // Proactive token expiration check on app load
+        if (token && isTokenExpired(token)) {
+          console.log('SplashScreen: Token expired client-side. Clearing session and redirecting to Login.');
+          await clearAuthSession();
+          navigation.replace('Login');
+          return;
+        }
+
         if (token && profileCompleted === 'true') {
-          // Existing user with completed profile → go to Dashboard
+          // Existing valid user with completed profile -> go to Dashboard
           completeAuth();
         } else if (token && profileCompleted !== 'true') {
-          // Token exists but profile not done → go to ProfileSetup
+          // Token exists & valid but profile setup pending -> go to ProfileSetup
           navigation.replace('ProfileSetup');
         } else {
-          // No token → go to Login
+          // No token -> go to Login
           navigation.replace('Login');
         }
       } catch (error) {
         console.log('SplashScreen check error:', error);
+        await clearAuthSession();
         navigation.replace('Login');
       }
     }, 2500);
@@ -39,8 +50,8 @@ export default function SplashScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <ImageBackground 
-        source={require('../../../assets/splash-logo.png')} 
+      <ImageBackground
+        source={require('../../../assets/splash-logo.png')}
         style={styles.backgroundImage}
         resizeMode="cover"
       />
@@ -49,14 +60,14 @@ export default function SplashScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1 
+  container: {
+    flex: 1,
   },
-  backgroundImage: { 
-    flex: 1, 
-    width: '100%', 
+  backgroundImage: {
+    flex: 1,
+    width: '100%',
     height: '100%',
     justifyContent: 'center',
-    alignItems: 'center'
-  }
+    alignItems: 'center',
+  },
 });

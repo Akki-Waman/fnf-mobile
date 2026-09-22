@@ -1,17 +1,35 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Modal,
+  TextInput,
+  Alert,
+  Platform,
+  KeyboardAvoidingView,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { apiClient } from '../../services/api';
+import { profileApi } from '../../services/profileApi';
+import { familyApi } from '../../services/familyApi';
+import { intelligenceApi } from '../../services/intelligenceApi';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../theme';
+import { Avatar, Card, EmptyState } from '../../components';
 
-// ---- Types ----
 export type Celebration = {
   id: string;
   name: string;
-  subtitle: string; // e.g. 'Today', 'Tomorrow', 'In 3 days'
+  subtitle: string;
   avatarUrl?: string | null;
   avatarBg?: string;
   icon: keyof typeof Ionicons.glyphMap;
@@ -29,8 +47,9 @@ type QuickAction = {
 };
 
 type DashboardScreenProps = {
-  userName?: string; // optional override - if not passed, the screen fetches it itself
-  celebrations?: Celebration[]; // optional override - if not passed, the screen fetches it itself
+  userName?: string;
+  userPhotoUrl?: string | null;
+  celebrations?: Celebration[];
   navigation?: { navigate: (route: string, params?: Record<string, unknown>) => void };
   onSeeAllPress?: () => void;
   onAddMemory?: () => void;
@@ -39,7 +58,6 @@ type DashboardScreenProps = {
   onFamilyTree?: () => void;
 };
 
-// ---- Time-based greeting ----
 function getGreeting(): string {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good Morning';
@@ -49,6 +67,7 @@ function getGreeting(): string {
 
 export default function DashboardScreen({
   userName,
+  userPhotoUrl,
   celebrations: celebrationsProp,
   navigation,
   onSeeAllPress,
@@ -59,51 +78,130 @@ export default function DashboardScreen({
 }: DashboardScreenProps) {
   const greeting = getGreeting();
   const { signOut } = useAuth();
+  const { colors, typography, borderRadius, shadows, spacing } = useTheme();
+
   const [fetchedName, setFetchedName] = useState<string | null>(null);
+  const [fetchedPhotoUrl, setFetchedPhotoUrl] = useState<string | null>(null);
 
   const [fetchedCelebrations, setFetchedCelebrations] = useState<Celebration[]>([]);
   const [loadingCelebrations, setLoadingCelebrations] = useState(celebrationsProp === undefined);
   const [celebrationsError, setCelebrationsError] = useState(false);
 
-  // ---- Profile name ----
-  useEffect(() => {
-    if (userName) return;
+  // New Event Modal State
+  const [newEventModalVisible, setNewEventModalVisible] = useState(false);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventType, setEventType] = useState<'Birthday' | 'Anniversary' | 'Festival' | 'Special Event'>('Birthday');
+  const [eventDate, setEventDate] = useState(new Date());
+  const [showEventDatePicker, setShowEventDatePicker] = useState(false);
+  const [savingEvent, setSavingEvent] = useState(false);
 
-    const loadUser = async () => {
-      try {
-        const token = await AsyncStorage.getItem('userToken');
-        if (!token) return;
+  const loadUser = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) return;
 
-        const res = await apiClient.get('/user/profile/me');
-        if (res.data?.success) {
-          const data = res.data?.data;
-          if (data?.firstName) {
-            setFetchedName(data.firstName);
+      const cachedPhoto = await AsyncStorage.getItem('@user_profile_photo');
+      if (cachedPhoto) setFetchedPhotoUrl(cachedPhoto);
+
+      const res = await profileApi.getMyProfile();
+      if (res.success && res.data) {
+        if (res.data.firstName) setFetchedName(res.data.firstName);
+        if (res.data.profilePhotoUrl) {
+          const resolved = familyApi.resolvePhotoUrl(res.data.profilePhotoUrl);
+          if (resolved) {
+            setFetchedPhotoUrl(resolved);
+            await AsyncStorage.setItem('@user_profile_photo', resolved);
           }
         }
-      } catch (error) {
-        console.log('Failed to load user profile', error);
       }
-    };
+    } catch (error) {
+      console.log('Failed to load user profile', error);
+    }
+  }, []);
 
+  useEffect(() => {
     loadUser();
-  }, [userName]);
+  }, [loadUser]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUser();
+    }, [loadUser])
+  );
+
 
   const displayName = userName || fetchedName;
+  const displayPhotoUrl = userPhotoUrl || fetchedPhotoUrl;
 
-  // ---- Upcoming celebrations ----
   const loadCelebrations = useCallback(async () => {
-    if (celebrationsProp !== undefined) return; // caller controls the data, don't fetch
-
+    if (celebrationsProp !== undefined) return;
     setLoadingCelebrations(true);
     setCelebrationsError(false);
     try {
-      const res = await apiClient.get('/family/celebrations/upcoming');
-      if (res.data?.success && Array.isArray(res.data?.data)) {
-        setFetchedCelebrations(res.data.data);
-      } else {
-        setFetchedCelebrations([]);
+      let mapped: Celebration[] = [];
+      const res = await intelligenceApi.getUpcomingCelebrations();
+      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+        mapped = res.data.map((item: any) => ({
+          id: String(item.id || item.eventId || Math.random()),
+          name: item.name || item.memberName || item.title || 'Celebration',
+          subtitle: item.subtitle || item.eventDate || item.eventType || 'Upcoming Event',
+          avatarUrl: item.avatarUrl || item.photoUrl || item.profilePhotoUrl || item.spousePhotoUrl || item.anniversaryPhotoUrl || null,
+          avatarBg: item.avatarBg || '#F3E8FF',
+          icon: item.icon || (item.eventType === 'ANNIVERSARY' ? 'heart' : 'gift'),
+          iconBg: item.iconBg || (item.eventType === 'ANNIVERSARY' ? '#FEE2E2' : '#FFF1F2'),
+          iconColor: item.iconColor || (item.eventType === 'ANNIVERSARY' ? '#EF4444' : '#FF5F6D'),
+        }));
       }
+
+      // Check locally created custom events
+      const customEventsRaw = await AsyncStorage.getItem('@custom_user_events');
+      if (customEventsRaw) {
+        const customList: Celebration[] = JSON.parse(customEventsRaw);
+        mapped = [...customList, ...mapped];
+      }
+
+      // Check locally saved Spouse & Anniversary info
+      const spouseRaw = await AsyncStorage.getItem('@user_spouse_info');
+      if (spouseRaw) {
+        const spouseData = JSON.parse(spouseRaw);
+        if (spouseData.spouseName && spouseData.spouseDob) {
+          const spouseDobDate = new Date(spouseData.spouseDob);
+          const dobFormatted = spouseDobDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+          const spouseBdayEvent: Celebration = {
+            id: 'spouse_bday_event',
+            name: `${spouseData.spouseName}'s Birthday`,
+            subtitle: `Birthday • ${dobFormatted}`,
+            avatarUrl: spouseData.spousePhotoUrl || null,
+            avatarBg: '#FFF0F2',
+            icon: 'gift',
+            iconBg: '#FFF1F2',
+            iconColor: '#FF5F6D',
+          };
+          if (!mapped.some(c => c.name.includes(spouseData.spouseName))) {
+            mapped.unshift(spouseBdayEvent);
+          }
+        }
+
+        if (spouseData.anniversaryDate) {
+          const annivDate = new Date(spouseData.anniversaryDate);
+          const annivFormatted = annivDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+          const anniversaryEvent: Celebration = {
+            id: 'anniversary_event',
+            name: 'Wedding Anniversary',
+            subtitle: `Anniversary • ${annivFormatted}`,
+            avatarUrl: spouseData.anniversaryPhotoUrl || spouseData.spousePhotoUrl || null,
+            avatarBg: '#FCE7F3',
+            icon: 'heart',
+            iconBg: '#FEE2E2',
+            iconColor: '#EF4444',
+          };
+          if (!mapped.some(c => c.name.toLowerCase().includes('anniversary'))) {
+            mapped.push(anniversaryEvent);
+          }
+        }
+      }
+
+      setFetchedCelebrations(mapped);
     } catch (error) {
       console.log('Failed to load upcoming celebrations', error);
       setCelebrationsError(true);
@@ -126,112 +224,290 @@ export default function DashboardScreen({
     navigation?.navigate('FamilyTree');
   };
 
+  const handleAddMemory = () => {
+    if (onAddMemory) {
+      onAddMemory();
+      return;
+    }
+    navigation?.navigate('Memories');
+  };
+
+  const handleSendWish = () => {
+    if (onSendWish) {
+      onSendWish();
+      return;
+    }
+    navigation?.navigate('MessageScheduler');
+  };
+
+  const handleOpenNewEvent = () => {
+    if (onNewEvent) {
+      onNewEvent();
+      return;
+    }
+    setNewEventModalVisible(true);
+  };
+
+  const handleSeeAll = () => {
+    if (onSeeAllPress) {
+      onSeeAllPress();
+      return;
+    }
+    navigation?.navigate('EventDetails');
+  };
+
+  const handleSaveNewEvent = async () => {
+    if (!eventTitle.trim()) {
+      Alert.alert('Missing Title', 'Please enter an event title.');
+      return;
+    }
+
+    try {
+      setSavingEvent(true);
+      const dateFormatted = eventDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      const newCeleb: Celebration = {
+        id: `custom_event_${Date.now()}`,
+        name: eventTitle.trim(),
+        subtitle: `${eventType} • ${dateFormatted}`,
+        avatarBg: '#EEF2FF',
+        icon: eventType === 'Birthday' ? 'gift' : eventType === 'Anniversary' ? 'heart' : 'sparkles',
+        iconBg: eventType === 'Birthday' ? '#FFF1F2' : eventType === 'Anniversary' ? '#FEE2E2' : '#EEF2FF',
+        iconColor: eventType === 'Birthday' ? '#FF5F6D' : eventType === 'Anniversary' ? '#EF4444' : '#6366F1',
+      };
+
+      // Save locally to @custom_user_events
+      const existingRaw = await AsyncStorage.getItem('@custom_user_events');
+      const existingEvents: Celebration[] = existingRaw ? JSON.parse(existingRaw) : [];
+      existingEvents.unshift(newCeleb);
+      await AsyncStorage.setItem('@custom_user_events', JSON.stringify(existingEvents));
+
+      setFetchedCelebrations((prev) => [newCeleb, ...prev]);
+      Alert.alert('Event Created! 🎉', `${eventTitle} has been added to your upcoming events.`);
+      setNewEventModalVisible(false);
+      setEventTitle('');
+    } catch (error) {
+      console.log('Failed to save new event', error);
+      Alert.alert('Error', 'Could not create event.');
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
   const quickActions: QuickAction[] = [
-    { id: '1', label: 'Add\nMemory', icon: 'images-outline', color: '#7C3AED', bg: '#EDE9FE', onPress: onAddMemory },
-    { id: '2', label: 'Send\nWish', icon: 'gift-outline', color: '#F97316', bg: '#FFEDD5', onPress: onSendWish },
-    { id: '3', label: 'New\nEvent', icon: 'calendar-outline', color: '#EF4444', bg: '#FEE2E2', onPress: onNewEvent },
-    { id: '4', label: 'Family\nTree', icon: 'people-outline', color: '#EC4899', bg: '#FCE7F3', onPress: handleFamilyTree },
+    { id: '1', label: 'Add Memory', icon: 'images-outline', color: '#7C3AED', bg: '#F3E8FF', onPress: handleAddMemory },
+    { id: '2', label: 'Send Wish', icon: 'gift-outline', color: '#FF5F6D', bg: '#FFF1F2', onPress: handleSendWish },
+    { id: '3', label: 'New Event', icon: 'calendar-outline', color: '#3B82F6', bg: '#EFF6FF', onPress: handleOpenNewEvent },
+    { id: '4', label: 'Family Tree', icon: 'people-outline', color: '#10B981', bg: '#ECFDF5', onPress: handleFamilyTree },
   ];
 
+  const formatDateDisplay = (dateObj: Date) => {
+    return dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
   return (
-    <View style={styles.container}>
-      {/* Top Header Gradient */}
-      <LinearGradient
-        colors={['#7C3AED', '#EC4899']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerGradient}
-      >
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Hero Header */}
+      <LinearGradient colors={colors.gradientPrimary} style={styles.headerGradient}>
         <SafeAreaView edges={['top', 'left', 'right']}>
           <View style={styles.headerContent}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Text style={styles.greetingText}>
-                {displayName ? `${greeting}, ${displayName}! 👋` : `${greeting}! 👋`}
-              </Text>
-              <TouchableOpacity onPress={signOut} style={{ padding: 4 }}>
-                <Ionicons name="log-out-outline" size={26} color="#FFFFFF" />
+            <View style={styles.topRow}>
+              <View style={styles.greetingContainer}>
+                <Avatar
+                  name={displayName || 'User'}
+                  source={displayPhotoUrl}
+                  size="md"
+                  style={styles.avatarShadow}
+                />
+                <View style={styles.nameTextContainer}>
+                  <Text style={styles.greetingTitle}>
+                    {displayName ? `${greeting}, ${displayName}! 👋` : `${greeting}! 👋`}
+                  </Text>
+                  <Text style={styles.greetingSubtitle}>Welcome back to your family hub</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={signOut}
+                style={[styles.iconButton, shadows.sm]}
+              >
+                <Ionicons name="log-out-outline" size={20} color={colors.primary} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.subtitleText}>
-              Here's what's happening today in your family.
-            </Text>
           </View>
         </SafeAreaView>
       </LinearGradient>
 
-      {/* Scrollable content */}
+      {/* Main Body Content */}
       <ScrollView
-        style={styles.contentContainer}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Upcoming Celebrations Card */}
-        <View style={styles.card}>
+        {/* Quick Actions Grid */}
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary, fontWeight: typography.fontWeight.bold }]}>
+            Quick Actions
+          </Text>
+        </View>
+
+        <View style={styles.quickGrid}>
+          {quickActions.map(action => (
+            <TouchableOpacity
+              key={action.id}
+              activeOpacity={0.8}
+              style={[styles.quickCard, { backgroundColor: colors.surface }, shadows.sm]}
+              onPress={action.onPress}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: action.bg }]}>
+                <Ionicons name={action.icon} size={24} color={action.color} />
+              </View>
+              <Text style={[styles.actionLabel, { color: colors.textPrimary, fontWeight: typography.fontWeight.semibold }]}>
+                {action.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Celebrations Section */}
+        <Card variant="elevated" style={styles.celebrationsCard}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>Upcoming Celebrations</Text>
-            <TouchableOpacity onPress={onSeeAllPress}>
-              <Text style={styles.seeAllText}>See All</Text>
+            <View style={styles.titleIconRow}>
+              <Ionicons name="sparkles" size={20} color={colors.primary} style={{ marginRight: 8 }} />
+              <Text style={[styles.cardTitle, { color: colors.textPrimary, fontWeight: typography.fontWeight.bold }]}>
+                Upcoming Celebrations
+              </Text>
+            </View>
+            <TouchableOpacity onPress={handleSeeAll}>
+              <Text style={[styles.seeAllText, { color: colors.primary, fontWeight: typography.fontWeight.semibold }]}>
+                See All
+              </Text>
             </TouchableOpacity>
           </View>
 
           {loadingCelebrations ? (
-            <View style={styles.emptyState}>
-              <ActivityIndicator color="#8B5CF6" />
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator color={colors.primary} size="large" />
             </View>
           ) : celebrationsError ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="cloud-offline-outline" size={28} color="#C4B5FD" />
-              <Text style={styles.emptyStateText}>Couldn't load celebrations</Text>
-              <TouchableOpacity onPress={loadCelebrations}>
-                <Text style={styles.retryText}>Tap to retry</Text>
-              </TouchableOpacity>
-            </View>
+            <EmptyState
+              icon="cloud-offline-outline"
+              title="Couldn't load celebrations"
+              actionTitle="Tap to retry"
+              onAction={loadCelebrations}
+            />
           ) : celebrations.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="calendar-outline" size={28} color="#C4B5FD" />
-              <Text style={styles.emptyStateText}>No upcoming celebrations yet</Text>
-            </View>
+            <EmptyState
+              icon="balloon-outline"
+              title="No upcoming celebrations"
+              description="Birthdays and anniversaries will appear here automatically."
+            />
           ) : (
             celebrations.map((item, index) => (
               <View
                 key={item.id}
                 style={[
                   styles.celebrationRow,
-                  index === celebrations.length - 1 && { marginBottom: 0 },
+                  { borderBottomColor: colors.divider },
+                  index === celebrations.length - 1 && { borderBottomWidth: 0, paddingBottom: 0 },
                 ]}
               >
-                <View style={[styles.avatarCircle, { backgroundColor: item.avatarBg || '#8B5CF6' }]}>
-                  <Ionicons name="person" size={22} color="#FFFFFF" />
-                </View>
+                <Avatar name={item.name} source={item.avatarUrl} size="md" />
 
                 <View style={styles.celebrationTextContainer}>
-                  <Text style={styles.celebrationName}>{item.name}</Text>
-                  <Text style={styles.celebrationSubtitle}>{item.subtitle}</Text>
+                  <Text style={[styles.celebrationName, { color: colors.textPrimary, fontWeight: typography.fontWeight.bold }]}>
+                    {item.name}
+                  </Text>
+                  <Text style={[styles.celebrationSubtitle, { color: colors.textSecondary }]}>
+                    {item.subtitle}
+                  </Text>
                 </View>
 
                 <View style={[styles.badgeCircle, { backgroundColor: item.iconBg }]}>
-                  <Ionicons name={item.icon} size={16} color={item.iconColor} />
+                  <Ionicons name={item.icon} size={18} color={item.iconColor} />
                 </View>
               </View>
             ))
           )}
-        </View>
+        </Card>
       </ScrollView>
 
-      {/* Quick Actions - pinned to bottom */}
-      <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.quickActionsWrapper}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionGrid}>
-          {quickActions.map((action) => (
-            <TouchableOpacity key={action.id} style={styles.actionBox} onPress={action.onPress}>
-              <View style={[styles.actionIconCircle, { backgroundColor: action.bg }]}>
-                <Ionicons name={action.icon} size={22} color={action.color} />
+      {/* New Event Modal */}
+      <Modal visible={newEventModalVisible} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Create New Event</Text>
+              <TouchableOpacity onPress={() => setNewEventModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.fieldLabel}>Event Title</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. Papa's 50th Birthday, Graduation"
+                value={eventTitle}
+                onChangeText={setEventTitle}
+                placeholderTextColor="#9CA3AF"
+              />
+
+              <Text style={styles.fieldLabel}>Event Type</Text>
+              <View style={styles.chipRow}>
+                {(['Birthday', 'Anniversary', 'Festival', 'Special Event'] as const).map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.typeChip, eventType === type && styles.typeChipActive]}
+                    onPress={() => setEventType(type)}
+                  >
+                    <Text style={[styles.typeChipText, eventType === type && styles.typeChipTextActive]}>
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-              <Text style={styles.actionText}>{action.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </SafeAreaView>
+
+              <Text style={styles.fieldLabel}>Event Date</Text>
+              <TouchableOpacity style={styles.datePickerBox} onPress={() => setShowEventDatePicker(true)}>
+                <Text style={styles.datePickerText}>{formatDateDisplay(eventDate)}</Text>
+                <Ionicons name="calendar-outline" size={22} color="#3B82F6" />
+              </TouchableOpacity>
+
+              {showEventDatePicker && (
+                <DateTimePicker
+                  value={eventDate}
+                  mode="date"
+                  display="default"
+                  minimumDate={new Date()}
+                  onChange={(event, selectedDate) => {
+                    setShowEventDatePicker(Platform.OS === 'ios');
+                    if (selectedDate) setEventDate(selectedDate);
+                  }}
+                />
+              )}
+
+              <TouchableOpacity
+                style={styles.saveBtn}
+                onPress={handleSaveNewEvent}
+                disabled={savingEvent}
+                activeOpacity={0.8}
+              >
+                <LinearGradient colors={['#3B82F6', '#8B5CF6']} style={styles.saveGradient}>
+                  {savingEvent ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveBtnText}>Save Event</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -239,47 +515,96 @@ export default function DashboardScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
   },
   headerGradient: {
-    paddingBottom: 60,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
+    paddingBottom: 24,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
   headerContent: {
-    paddingHorizontal: 24,
-    paddingTop: 10,
-  },
-  greetingText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  subtitleText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    opacity: 0.9,
-    marginTop: 6,
-    lineHeight: 20,
-  },
-  contentContainer: {
-    flex: 1,
     paddingHorizontal: 20,
-    marginTop: -5,
+    paddingTop: 12,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  greetingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  avatarShadow: {
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    overflow: 'hidden',
+  },
+  nameTextContainer: {
+    marginLeft: 14,
+    flex: 1,
+  },
+  greetingTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  greetingSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollView: {
+    flex: 1,
+    marginTop: -12,
   },
   scrollContent: {
-    paddingTop: 0,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 30,
   },
-  card: {
-    backgroundColor: '#FFFFFF',
+  sectionHeader: {
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+  },
+  quickGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  quickCard: {
+    flex: 1,
+    marginHorizontal: 4,
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  actionIconContainer: {
+    width: 48,
+    height: 48,
     borderRadius: 24,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  actionLabel: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  celebrationsCard: {
+    padding: 18,
+    borderRadius: 22,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -287,30 +612,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  titleIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   cardTitle: {
     fontSize: 17,
-    fontWeight: '700',
-    color: '#111827',
   },
   seeAllText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#8B5CF6',
+    fontSize: 14,
+  },
+  loadingContainer: {
+    paddingVertical: 30,
+    alignItems: 'center',
   },
   celebrationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FBF8FF',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 12,
-  },
-  avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
   },
   celebrationTextContainer: {
     flex: 1,
@@ -318,79 +638,115 @@ const styles = StyleSheet.create({
   },
   celebrationName: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
   },
   celebrationSubtitle: {
     fontSize: 13,
-    color: '#9CA3AF',
     marginTop: 2,
   },
   badgeCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 24,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
   },
-  emptyStateText: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    marginTop: 8,
-  },
-  retryText: {
-    fontSize: 13,
-    color: '#8B5CF6',
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  quickActionsWrapper: {
+  modalContent: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 8,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    maxHeight: '85%',
   },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 14,
-  },
-  actionGrid: {
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingBottom: 12,
-  },
-  actionBox: {
-    backgroundColor: '#FFFFFF',
-    width: '23%',
-    borderRadius: 18,
-    paddingVertical: 16,
     alignItems: 'center',
+    marginBottom: 20,
   },
-  actionIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6B7280',
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  textInput: {
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: '#FAFAFA',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 16,
+    fontSize: 15,
+    color: '#111827',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  typeChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#FAFAFA',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
+  typeChipActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+  },
+  typeChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  typeChipTextActive: {
+    color: '#3B82F6',
+    fontWeight: '700',
+  },
+  datePickerBox: {
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: '#FAFAFA',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  datePickerText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  saveBtn: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  saveGradient: {
+    height: 54,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
   },
-  actionText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-    textAlign: 'center',
-    lineHeight: 16,
+  saveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

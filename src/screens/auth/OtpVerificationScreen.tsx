@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { apiClient } from '../../services/api';
+import { authApi } from '../../services/authApi';
 import { useAuth } from '../../context/AuthContext';
 
 
@@ -75,14 +76,10 @@ useEffect(() => {
   try {
     setIsResending(true);
 
-    const response = await apiClient.post(
-      '/auth/send-otp',
-      {
-        username,
-      }
-    );
+    const targetUsername = username || route.params?.phoneNumber || '';
+    const response = await authApi.sendOtp({ username: targetUsername });
 
-    if (response.data.success) {
+    if (response.success) {
       Alert.alert(
         'Success',
         'OTP sent successfully.'
@@ -94,7 +91,7 @@ useEffect(() => {
     } else {
       Alert.alert(
         'Error',
-        response.data.message ||
+        response.message ||
           'Failed to resend OTP.'
       );
     }
@@ -187,10 +184,10 @@ useEffect(() => {
           response.data.data;
 
         const token =
-          data?.jwt_token;
+          data?.jwtToken || data?.jwt_token;
 
         const profileCompleted =
-          data?.profile_completed;
+          data?.profileCompleted ?? data?.profile_completed;
 
         if (!token) {
           Alert.alert(
@@ -212,6 +209,11 @@ useEffect(() => {
         if (
           profileCompleted
         ) {
+          const savedRedirect = await AsyncStorage.getItem('redirectAfterLogin');
+          if (savedRedirect) {
+            await AsyncStorage.removeItem('redirectAfterLogin');
+            console.log('Restoring post-login route:', savedRedirect);
+          }
           // Switch to MainNavigator (Dashboard is default)
           completeAuth();
         } else {
@@ -354,12 +356,9 @@ useEffect(() => {
                     key={
                       index
                     }
-                    ref={ref =>
-                      (inputRefs.current[
-                        index
-                      ] =
-                        ref)
-                    }
+                    ref={ref => {
+                      inputRefs.current[index] = ref;
+                    }}
                     style={
                       styles.otpBox
                     }

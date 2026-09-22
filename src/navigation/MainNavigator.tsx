@@ -1,7 +1,9 @@
 import React from 'react';
+import { View, StyleSheet, Platform } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../theme';
 
 // Import Screens
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
@@ -43,10 +45,29 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
 function MainTabNavigator() {
+  const { colors, shadows, borderRadius } = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarShowLabel: true,
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          height: Platform.OS === 'ios' ? 84 : 68,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+          paddingTop: 8,
+          ...shadows.md,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+          marginTop: 2,
+        },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap = 'home';
           if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
@@ -54,20 +75,57 @@ function MainTabNavigator() {
           else if (route.name === 'Add') iconName = focused ? 'add-circle' : 'add-circle-outline';
           else if (route.name === 'Chats') iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
           else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
-          return <Ionicons name={iconName} size={size} color={color} />;
+
+          if (route.name === 'Add') {
+            return (
+              <View
+                style={[
+                  styles.addIconContainer,
+                  {
+                    backgroundColor: colors.primary,
+                    borderRadius: borderRadius.full,
+                    ...shadows.primaryGlow,
+                  },
+                ]}
+              >
+                <Ionicons name="add" size={26} color={colors.white} />
+              </View>
+            );
+          }
+
+          return (
+            <View style={focused ? [styles.activeTabPill, { backgroundColor: colors.surfaceHighlighted }] : null}>
+              <Ionicons name={iconName} size={size} color={color} />
+            </View>
+          );
         },
-        tabBarActiveTintColor: '#FF8A65', // App theme orange/coral
-        tabBarInactiveTintColor: 'gray',
       })}
     >
-      <Tab.Screen name="Home" component={DashboardScreen} />
-      <Tab.Screen name="Network" component={ContactDiscoveryScreen} />
-      <Tab.Screen name="Add" component={CreateFamilyTreeScreen} />
-      <Tab.Screen name="Chats" component={ChatListScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Home" component={DashboardScreen} options={{ tabBarLabel: 'Home' }} />
+      <Tab.Screen name="Network" component={ContactDiscoveryScreen} options={{ tabBarLabel: 'Network' }} />
+      <Tab.Screen name="Add" component={CreateFamilyTreeScreen} options={{ tabBarLabel: 'Family' }} />
+      <Tab.Screen name="Chats" component={ChatListScreen} options={{ tabBarLabel: 'Chats' }} />
+      <Tab.Screen name="Profile" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
     </Tab.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  activeTabPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addIconContainer: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -16,
+  },
+});
 
 export default function MainNavigator() {
   return (
