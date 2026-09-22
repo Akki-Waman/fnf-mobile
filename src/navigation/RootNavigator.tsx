@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from '../context/AuthContext';
@@ -6,7 +6,13 @@ import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 
 function RootSwitch() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, checkTokenValidity } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      checkTokenValidity();
+    }
+  }, [isAuthenticated, checkTokenValidity]);
 
   if (isLoading) {
     return (
@@ -24,9 +30,5 @@ function RootSwitch() {
 }
 
 export default function RootNavigator() {
-  return (
-    <AuthProvider>
-      <RootSwitch />
-    </AuthProvider>
-  );
+  return <RootSwitch />;
 }

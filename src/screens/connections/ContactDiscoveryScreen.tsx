@@ -1,15 +1,15 @@
 import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, FlatList, Image } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const MOCK_CONTACTS = [
-  { id: '1', name: 'Rahul Sharma', mutual: '12 mutual friends', image: 'https://i.pravatar.cc/150?img=12' },
-  { id: '2', name: 'Sneha Verma', mutual: '8 mutual friends', image: 'https://i.pravatar.cc/150?img=5' },
-  { id: '3', name: 'Vikram Mehta', mutual: '3 mutual friends', image: 'https://i.pravatar.cc/150?img=8' },
-  { id: '4', name: 'Priya Singh', mutual: '15 mutual friends', image: 'https://i.pravatar.cc/150?img=9' },
-  { id: '5', name: 'Aman Tiwari', mutual: '5 mutual friends', image: 'https://i.pravatar.cc/150?img=15' },
+  { id: '1', name: 'Rahul Sharma', mutual: '12 mutual friends' },
+  { id: '2', name: 'Sneha Verma', mutual: '8 mutual friends' },
+  { id: '3', name: 'Vikram Mehta', mutual: '3 mutual friends' },
+  { id: '4', name: 'Priya Singh', mutual: '15 mutual friends' },
+  { id: '5', name: 'Aman Tiwari', mutual: '5 mutual friends' },
 ];
 
 export default function ContactDiscoveryScreen() {
@@ -17,23 +17,27 @@ export default function ContactDiscoveryScreen() {
 
   const renderItem = ({ item }: { item: typeof MOCK_CONTACTS[0] }) => (
     <View style={styles.contactItem}>
-      <Image source={{ uri: item.image }} style={styles.avatar} />
+      <View style={styles.avatar}>
+        <Ionicons name="person" size={22} color="#6366F1" />
+      </View>
       <View style={styles.contactInfo}>
         <Text style={styles.contactName}>{item.name}</Text>
         <Text style={styles.mutualFriends}>{item.mutual}</Text>
       </View>
-      <TouchableOpacity style={styles.connectButton}>
-        <Text style={styles.connectButtonText}>Connect</Text>
+      <TouchableOpacity style={styles.connectButton} activeOpacity={0.8}>
+        <LinearGradient colors={['#6366F1', '#A53FE7']} style={styles.btnGradient}>
+          <Text style={styles.connectButtonText}>Connect</Text>
+        </LinearGradient>
       </TouchableOpacity>
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <LinearGradient colors={['#7E57C2', '#9575CD']} style={styles.headerGradient}>
+    <LinearGradient colors={['#6366F1', '#A53FE7']} style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={28} color="white" />
+            <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>Discover People</Text>
@@ -42,45 +46,47 @@ export default function ContactDiscoveryScreen() {
         </View>
 
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+          <Ionicons name="search-outline" size={20} color="#9CA3AF" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search..."
-            placeholderTextColor="#999"
+            placeholder="Search contacts..."
+            placeholderTextColor="#9CA3AF"
           />
         </View>
-      </LinearGradient>
 
-      <FlatList
-        data={MOCK_CONTACTS}
-        keyExtractor={item => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      />
-    </SafeAreaView>
+        <View style={styles.contentBody}>
+          <FlatList
+            data={MOCK_CONTACTS}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+          />
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   safeArea: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
-  headerGradient: {
-    paddingTop: 10,
-    paddingBottom: 25,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   backButton: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 10,
   },
   headerTextContainer: {
@@ -88,22 +94,23 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: 'white',
   },
   headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginTop: 2,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     marginHorizontal: 20,
-    borderRadius: 12,
-    paddingHorizontal: 15,
+    borderRadius: 16,
+    paddingHorizontal: 16,
     height: 48,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -115,54 +122,63 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#111827',
+  },
+  contentBody: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 20,
+    paddingHorizontal: 20,
   },
   listContent: {
-    padding: 20,
-    paddingTop: 30,
+    paddingBottom: 20,
   },
   contactItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 16,
+    backgroundColor: '#FAFAFA',
+    padding: 16,
+    borderRadius: 18,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 15,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
   },
   contactInfo: {
     flex: 1,
   },
   contactName: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
   },
   mutualFriends: {
     fontSize: 13,
-    color: '#777',
+    color: '#6B7280',
   },
   connectButton: {
-    backgroundColor: '#7E57C2',
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  btnGradient: {
     paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingHorizontal: 18,
   },
   connectButtonText: {
     color: 'white',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });
